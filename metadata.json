@@ -1,0 +1,6 @@
+{
+  "name": "FloraWise - AI Plant Identifier & Gardening Assistant",
+  "description": "Instant botanical identification, visual plant health diagnostics, tailored care guides, watering schedules, and multi-model Gemini botanical AI consultation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

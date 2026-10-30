@@ -240,7 +240,16 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        if (!response.ok) {
+          throw new Error('Server is temporarily busy or photo is too large. Please retry or choose a different plant photo.');
+        }
+        throw new Error('Received unexpected response format from server. Please retry.');
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to identify plant. Please try again with a clearer photo.');

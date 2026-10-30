@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { SAMPLE_PLANTS, SamplePlant } from '../data/samplePlants';
 import { LiveCameraModal } from './LiveCameraModal';
+import { compressImage } from '../utils/imageCompressor';
 
 interface PlantUploaderProps {
   onAnalyze: (imageBase64: string, mimeType: string, userNotes: string, model: string) => void;
@@ -36,28 +37,27 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     setErrorMsg(null);
     if (!file.type.startsWith('image/')) {
       setErrorMsg('Please select a valid image file (JPEG, PNG, WEBP).');
       return;
     }
 
-    if (file.size > 20 * 1024 * 1024) {
-      setErrorMsg('Image is too large. Please select an image under 20MB.');
-      return;
+    try {
+      // Automatically compress and downscale large mobile/camera photos to avoid proxy timeouts
+      const compressed = await compressImage(file, 1280, 1280, 0.85);
+      setSelectedImage(compressed.base64);
+      setMimeType(compressed.mimeType);
+    } catch (err: any) {
+      console.warn('Compression fallback:', err);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setSelectedImage(e.target?.result as string);
+        setMimeType(file.type || 'image/jpeg');
+      };
+      reader.readAsDataURL(file);
     }
-
-    setMimeType(file.type);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setSelectedImage(result);
-    };
-    reader.onerror = () => {
-      setErrorMsg('Failed to read image file.');
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {

@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -12,7 +12,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(express.json({ limit: '25mb' }));
+// Body parser with generous limit
+app.use(express.json({ limit: '30mb' }));
+app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 
 // Initialize GoogleGenAI with proper telemetry User-Agent header
 const ai = new GoogleGenAI({
@@ -178,17 +180,47 @@ const plantIdentificationSchema = {
   ]
 };
 
+// Helper to convert base64 or URL into raw base64 string
+async function resolveImageBase64(input: string, fallbackMime: string): Promise<{ base64Data: string; mime: string }> {
+  if (input.startsWith('http://') || input.startsWith('https://')) {
+    const res = await fetch(input);
+    if (!res.ok) {
+      throw new Error(`Failed to load external specimen image from URL: ${input}`);
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = res.headers.get('content-type') || fallbackMime || 'image/jpeg';
+    return {
+      base64Data: buffer.toString('base64'),
+      mime: contentType.split(';')[0].trim(),
+    };
+  }
+
+  // Handle data URL prefix
+  const match = input.match(/^data:([^;]+);base64,(.+)$/);
+  if (match) {
+    return {
+      mime: match[1],
+      base64Data: match[2],
+    };
+  }
+
+  return {
+    base64Data: input.trim(),
+    mime: fallbackMime || 'image/jpeg',
+  };
+}
+
 // API: Plant Identification & Diagnostic
 app.post('/api/identify', async (req: Request, res: Response) => {
   try {
     const { imageBase64, mimeType = 'image/jpeg', userNotes = '', preferredModel = 'gemini-4-argon' } = req.body;
 
     if (!imageBase64) {
-      return res.status(400).json({ error: 'Missing image data' });
+      return res.status(400).json({ error: 'Missing image data for plant identification.' });
     }
 
-    // Strip base64 data URL prefix if present
-    const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+    const { base64Data, mime } = await resolveImageBase64(imageBase64, mimeType);
 
     const promptText = `Examine this photo in thorough botanical detail. Identify the plant precisely, evaluate its health condition, diagnose any visible issues (discoloration, pests, fungal spots, droop, root bound signs, scorch), and generate a comprehensive care guide.
 ${userNotes ? `User notes / observed problems: "${userNotes}"` : ''}
@@ -196,8 +228,8 @@ Be exacting and accurate. Return purely valid structured JSON matching the schem
 
     const imagePart = {
       inlineData: {
-        mimeType: mimeType,
-        data: cleanBase64,
+        mimeType: mime,
+        data: base64Data,
       },
     };
 
@@ -221,7 +253,6 @@ Be exacting and accurate. Return purely valid structured JSON matching the schem
       });
     } catch (primaryErr: any) {
       console.warn(`Primary model ${primaryModel} failed, trying fallback to gemini-3.8-flash:`, primaryErr?.message || primaryErr);
-      // Fallback seamlessly to gemini-3.8-flash if primary fails (e.g. tier limits or paid model flow)
       response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
         contents: { parts: [imagePart, textPart] },
@@ -233,8 +264,20 @@ Be exacting and accurate. Return purely valid structured JSON matching the schem
       });
     }
 
-    const responseText = response.text || '{}';
-    const parsedData = JSON.parse(responseText);
+    let responseText = (response.text || '{}').trim();
+    responseText = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+    let parsedData: any;
+    try {
+      parsedData = JSON.parse(responseText);
+    } catch {
+      const match = responseText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsedData = JSON.parse(match[0]);
+      } else {
+        throw new Error('Botanical analysis could not parse structured JSON. Please retry with a clear photo.');
+      }
+    }
 
     return res.json({ success: true, plant: parsedData });
   } catch (error: any) {
@@ -252,17 +295,13 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       messages = [],
       model = 'gemini-3.8-flash',
       plantContext = null,
-      taskType = 'general', // 'complex', 'general', 'fast'
+      taskType = 'general',
     } = req.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required' });
     }
 
-    // Select model according to prompt rules:
-    // - gemini-4-argon for particularly complex tasks
-    // - gemini-3.8-flash for general tasks
-    // - gemini-3.1-flash-lite for tasks that should happen fast
     let selectedModel = model;
     if (taskType === 'complex') {
       selectedModel = 'gemini-4-argon';
@@ -272,7 +311,6 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       selectedModel = 'gemini-3.8-flash';
     }
 
-    // Prepare contextual system instruction
     let contextualSystemInstruction = BOT_SYSTEM_INSTRUCTION;
     if (plantContext) {
       contextualSystemInstruction += `\n\nCURRENT CONTEXT: The user is currently inspecting or asking about their plant:
@@ -284,7 +322,6 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 Refer to this plant specifically when answering questions, unless the user asks about a different topic.`;
     }
 
-    // Convert messages to GenAI contents format
     const contents = messages.map((m: { role: string; content: string }) => ({
       role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
       parts: [{ text: m.content }],
@@ -324,6 +361,14 @@ Refer to this plant specifically when answering questions, unless the user asks 
       error: error.message || 'Chat service encountered an error. Please try again.',
     });
   }
+});
+
+// Custom error handling middleware - ALWAYS returns JSON, never HTML error pages
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('Unhandled server error:', err);
+  return res.status(err.status || 500).json({
+    error: err.message || 'An unexpected server error occurred. Please try again.',
+  });
 });
 
 // Setup Vite middleware for development or serve dist in production

@@ -190,7 +190,16 @@ ${currentPlantContext ? `Currently inspecting **${currentPlantContext.commonName
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        if (!response.ok) {
+          throw new Error('FloraBot server is temporarily busy. Please ask your question again.');
+        }
+        throw new Error('Received unexpected response format from server. Please ask again.');
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to get response from Gemini.');

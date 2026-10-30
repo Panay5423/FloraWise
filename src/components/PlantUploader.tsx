@@ -1,6 +1,18 @@
 import React, { useState, useRef } from 'react';
-import { Upload, Camera, Sparkles, Image as ImageIcon, AlertCircle, RefreshCw, Cpu, HelpCircle } from 'lucide-react';
+import {
+  Upload,
+  Camera,
+  Sparkles,
+  Image as ImageIcon,
+  AlertCircle,
+  RefreshCw,
+  Cpu,
+  Mic,
+  MicOff,
+  Plus
+} from 'lucide-react';
 import { SAMPLE_PLANTS, SamplePlant } from '../data/samplePlants';
+import { LiveCameraModal } from './LiveCameraModal';
 
 interface PlantUploaderProps {
   onAnalyze: (imageBase64: string, mimeType: string, userNotes: string, model: string) => void;
@@ -19,9 +31,10 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
   const [preferredModel, setPreferredModel] = useState<string>('gemini-4-argon');
   const [isDragOver, setIsDragOver] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (file: File) => {
     setErrorMsg(null);
@@ -60,7 +73,6 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
     setUserNotes(sample.commonAilmentPrompt);
 
     try {
-      // Fetch the sample image and convert to base64
       const response = await fetch(sample.imageUrl);
       const blob = await response.blob();
       setMimeType(blob.type || 'image/jpeg');
@@ -71,15 +83,70 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
       };
       reader.readAsDataURL(blob);
     } catch {
-      // Fallback: set the image directly
       setSelectedImage(sample.imageUrl);
       setMimeType('image/jpeg');
     }
   };
 
+  // Web Speech API for voice dictation of symptoms
+  const toggleSpeechRecognition = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser. You can type notes directly.');
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US'; // Also picks up English/Hinglish speech
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = () => setIsListening(false);
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setUserNotes((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.warn('Speech recognition error:', err);
+      setIsListening(false);
+    }
+  };
+
+  const quickSymptomTags = [
+    'Yellowing leaves (Chlorosis)',
+    'Crispy brown tips',
+    'Drooping & wilted stem',
+    'White fuzzy bugs (Mealybugs)',
+    'Powdery mildew spots',
+    'Curled leaves',
+    'Indoor low light',
+  ];
+
+  const addSymptomTag = (tag: string) => {
+    setUserNotes((prev) => {
+      if (!prev) return tag;
+      if (prev.includes(tag)) return prev;
+      return `${prev}, ${tag}`;
+    });
+  };
+
   const handleSubmit = () => {
     if (!selectedImage) {
-      setErrorMsg('Please upload an image or choose one of our sample plants first.');
+      setErrorMsg('Please upload an image, snap a photo, or choose one of our sample plants first.');
       return;
     }
     setErrorMsg(null);
@@ -88,18 +155,28 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8">
+      {/* Live camera modal */}
+      <LiveCameraModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCapture={(base64) => {
+          setSelectedImage(base64);
+          setMimeType('image/jpeg');
+        }}
+      />
+
       {/* Intro hero banner */}
       <div className="text-center space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs sm:text-sm font-medium">
-          <Sparkles className="w-4 h-4 text-emerald-600" />
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs sm:text-sm font-semibold shadow-2xs">
+          <Sparkles className="w-4 h-4 text-emerald-600 animate-spin" />
           <span>Multimodal Plant Vision powered by Gemini 4 Argon</span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-serif-plant font-bold text-emerald-950 tracking-tight">
           Identify Any Plant &amp; Diagnose Its Health
         </h1>
         <p className="max-w-2xl mx-auto text-base sm:text-lg text-stone-600 font-normal leading-relaxed">
-          Snap or upload a photo of your indoor houseplant, garden flower, or vegetable crop.
-          Receive an instant botanical taxonomy, visual health diagnosis, and tailor-made care schedule.
+          Snap or upload a photo of your indoor houseplant, garden flower, or home herb.
+          Get an instant botanical taxonomy, visual health diagnosis, and customized care blueprint.
         </p>
       </div>
 
@@ -130,16 +207,6 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
                 if (e.target.files?.[0]) handleFile(e.target.files[0]);
               }}
             />
-            <input
-              type="file"
-              ref={cameraInputRef}
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) handleFile(e.target.files[0]);
-              }}
-            />
 
             <div className="max-w-md mx-auto space-y-4">
               <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-inner">
@@ -151,7 +218,7 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
                   Drop your plant photo here, or <span className="text-emerald-700 underline underline-offset-2">browse files</span>
                 </p>
                 <p className="text-xs sm:text-sm text-stone-500 mt-1">
-                  Supports JPG, PNG, WEBP, HEIC up to 20MB
+                  Supports JPG, PNG, WEBP up to 20MB
                 </p>
               </div>
 
@@ -160,12 +227,12 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    cameraInputRef.current?.click();
+                    setIsCameraOpen(true);
                   }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-stone-50 text-xs sm:text-sm font-semibold shadow-xs"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-emerald-50 hover:border-emerald-300 text-xs sm:text-sm font-semibold shadow-xs transition-all"
                 >
                   <Camera className="w-4 h-4 text-emerald-600" />
-                  Take Photo
+                  Live Camera Scanner
                 </button>
                 <button
                   type="button"
@@ -173,10 +240,10 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
                     e.stopPropagation();
                     fileInputRef.current?.click();
                   }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-800 text-white hover:bg-emerald-900 text-xs sm:text-sm font-semibold shadow-xs"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-800 text-white hover:bg-emerald-900 text-xs sm:text-sm font-semibold shadow-xs transition-all"
                 >
                   <ImageIcon className="w-4 h-4" />
-                  Select Image
+                  Choose Image
                 </button>
               </div>
             </div>
@@ -210,7 +277,7 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
 
             {/* Visual scan overlay during loading */}
             {isLoading && (
-              <div className="absolute inset-0 bg-emerald-950/65 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center">
+              <div className="absolute inset-0 bg-emerald-950/75 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center">
                 <div className="relative mb-4">
                   <div className="w-16 h-16 rounded-full border-4 border-emerald-400/30 border-t-emerald-400 animate-spin" />
                   <Sparkles className="w-6 h-6 text-emerald-300 absolute inset-0 m-auto animate-pulse" />
@@ -226,30 +293,70 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
           </div>
         )}
 
-        {/* Optional User Notes / Symptoms */}
+        {/* User Notes / Symptoms & Voice input */}
         <div className="space-y-2">
-          <label className="flex items-center justify-between text-sm font-semibold text-stone-800">
-            <span className="flex items-center gap-2">
-              <HelpCircle className="w-4 h-4 text-emerald-600" />
-              Optional: Notes or Observed Symptoms
-            </span>
-            <span className="text-xs text-stone-400 font-normal">Helps Gemini diagnose accurately</span>
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+              <span>Observed Symptoms or Care Questions</span>
+              <span className="text-xs text-stone-400 font-normal">(Optional)</span>
+            </label>
+            <button
+              type="button"
+              onClick={toggleSpeechRecognition}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                isListening
+                  ? 'bg-rose-100 text-rose-700 animate-pulse'
+                  : 'bg-stone-100 text-stone-600 hover:bg-emerald-50 hover:text-emerald-800'
+              }`}
+              title="Voice Dictate Symptoms"
+            >
+              {isListening ? (
+                <>
+                  <MicOff className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Listening...</span>
+                </>
+              ) : (
+                <>
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>Voice Note</span>
+                </>
+              )}
+            </button>
+          </div>
+
           <input
             type="text"
             value={userNotes}
             onChange={(e) => setUserNotes(e.target.value)}
             disabled={isLoading}
-            placeholder="e.g. Lower leaves turning yellow, noticed tiny brown dots, indoor plant under north window..."
+            placeholder="e.g. Leaves turning yellow, noticed tiny brown dots, indoors near east window..."
             className="w-full px-4 py-3 rounded-xl border border-stone-200 bg-stone-50/50 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition-all placeholder:text-stone-400"
           />
+
+          {/* Quick symptom tags */}
+          <div className="flex items-center gap-1.5 flex-wrap pt-1">
+            <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider mr-1">
+              Add symptom:
+            </span>
+            {quickSymptomTags.map((tag, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => addSymptomTag(tag)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-emerald-100/70 text-stone-600 hover:text-emerald-900 text-xs font-medium transition-all"
+              >
+                <Plus className="w-3 h-3 text-emerald-600" />
+                <span>{tag}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Model preference selector & Analyze button */}
         <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-stone-100">
           <div className="flex items-center gap-2">
             <Cpu className="w-4 h-4 text-emerald-700" />
-            <span className="text-xs font-semibold text-stone-600">Vision Model:</span>
+            <span className="text-xs font-semibold text-stone-600">Vision Engine:</span>
             <select
               value={preferredModel}
               onChange={(e) => setPreferredModel(e.target.value)}
@@ -296,29 +403,32 @@ export const PlantUploader: React.FC<PlantUploaderProps> = ({
       {/* Quick sample plants gallery for instant 1-click test */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-stone-500">
-            Or try with sample botanical specimens
+          <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-500">
+            Or try with curated botanical specimens
           </h3>
           <span className="text-xs text-stone-400">Click any plant to load instantly</span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5 sm:gap-3">
           {SAMPLE_PLANTS.map((sample) => (
             <div
               key={sample.id}
               onClick={() => handleSelectSample(sample)}
-              className="group relative cursor-pointer rounded-2xl overflow-hidden border border-stone-200 hover:border-emerald-500 bg-white shadow-xs hover:shadow-md transition-all text-left flex flex-col"
+              className="group relative cursor-pointer rounded-2xl overflow-hidden border border-stone-200 hover:border-emerald-500 bg-white shadow-2xs hover:shadow-md transition-all text-left flex flex-col"
             >
-              <div className="h-28 w-full overflow-hidden bg-stone-100">
+              <div className="h-24 w-full overflow-hidden bg-stone-100">
                 <img
                   src={sample.imageUrl}
                   alt={sample.name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
               </div>
-              <div className="p-2.5 space-y-0.5">
+              <div className="p-2 space-y-0.5">
                 <p className="text-xs font-bold text-stone-900 truncate">{sample.name}</p>
-                <p className="text-[10px] text-emerald-700 font-medium truncate">{sample.category}</p>
+                {sample.hindiName && (
+                  <p className="text-[10px] text-emerald-800 font-semibold truncate">{sample.hindiName}</p>
+                )}
+                <p className="text-[9px] text-stone-400 font-medium truncate">{sample.category}</p>
               </div>
             </div>
           ))}

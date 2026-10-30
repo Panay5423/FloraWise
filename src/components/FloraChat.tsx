@@ -11,7 +11,11 @@ import {
   Copy,
   Check,
   HelpCircle,
-  AlertCircle
+  AlertCircle,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { ChatMessage, PlantIdentification } from '../types/plant';
 
@@ -28,11 +32,12 @@ export const FloraChat: React.FC<FloraChatProps> = ({
     {
       id: 'welcome',
       role: 'assistant',
-      content: `Hello! I'm **FloraBot**, your master horticulturist and botanical doctor. 🌿
+      content: `Hello! I'm **FloraBot**, your master horticulturist and plant doctor. 🌿
 
-I can help you diagnose leaf discoloration, dial in custom watering and lighting schedules, formulate organic soil mixes, explain propagation techniques, and ensure pet safety.
+I can help with plant care, leaf diagnostics, soil recipes, propagation, organic pest remedies (neem oil, haldi/turmeric, buttermilk spray), and pet safety.
+*You can chat with me in English, हिंदी, or Hinglish!*
 
-${currentPlantContext ? `I see you're currently examining **${currentPlantContext.commonName}** (*${currentPlantContext.scientificName}*). Feel free to ask me anything specific about it!` : 'How can I assist your garden or indoor jungle today?'}`,
+${currentPlantContext ? `Currently inspecting **${currentPlantContext.commonName}** (*${currentPlantContext.scientificName}*). Feel free to ask specific questions about it!` : 'How can I assist your plants or garden today?'}`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       modelUsed: 'gemini-3.8-flash',
     },
@@ -43,6 +48,8 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -55,15 +62,94 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
     scrollToBottom();
   }, [messages, isSending]);
 
+  // Clean up any ongoing speech synthesis on unmount
+  useEffect(() => {
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
   const starterPrompts = [
     currentPlantContext
       ? `How do I treat the ${currentPlantContext.healthDiagnosis?.issueDetected || 'stress'} on my ${currentPlantContext.commonName}?`
-      : 'Why are the tips of my indoor plant leaves turning brown and crispy?',
-    'What is the ideal DIY soil recipe for tropical houseplants?',
-    'How do I eliminate fungus gnats naturally using organic methods?',
-    'Which beautiful indoor plants are completely safe for curious cats?',
-    'When and how should I take stem cuttings for water propagation?',
+      : 'Tulsi ke patte kyu sukh rahe hain aur iski care kaise karein?',
+    'Money plant ko ghana (bushy) aur green kaise banayein?',
+    'Kadi patta (curry leaf) me best organic khad konsi hai?',
+    'Why are my indoor plant leaf tips turning brown and crispy?',
+    'Which houseplants are 100% safe for cats and dogs?',
+    'How do I make organic neem oil spray for mealybugs & mites?',
   ];
+
+  // Speech to text
+  const toggleSpeechRecognition = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser. You can type notes directly.');
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = () => setIsListening(false);
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.warn('Speech error:', err);
+      setIsListening(false);
+    }
+  };
+
+  // Text to speech
+  const toggleTextToSpeech = (id: string, text: string) => {
+    if (!('speechSynthesis' in window)) {
+      alert('Text-to-speech is not supported in this browser.');
+      return;
+    }
+
+    if (speakingMessageId === id) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    // Strip markdown formatting for cleaner speech
+    const cleanText = text
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/###/g, '')
+      .replace(/##/g, '')
+      .replace(/[-*]\s+/g, '');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0;
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+
+    setSpeakingMessageId(id);
+    window.speechSynthesis.speak(utterance);
+  };
 
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
@@ -84,7 +170,6 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
     setIsSending(true);
 
     try {
-      // Determine task type based on model selection
       let taskType = 'general';
       if (selectedModel === 'gemini-4-argon') taskType = 'complex';
       if (selectedModel === 'gemini-3.1-flash-lite') taskType = 'fast';
@@ -142,21 +227,21 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
   };
 
   const clearChat = () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setSpeakingMessageId(null);
     setMessages([
       {
         id: `welcome-${Date.now()}`,
         role: 'assistant',
-        content: `Chat history reset. How can I help with your plants today?`,
+        content: `Chat history reset. How can I help with your plants or garden today?`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         modelUsed: selectedModel,
       },
     ]);
   };
 
-  // Helper to render basic markdown bold and bullet points nicely
   const formatBotMessage = (content: string) => {
     return content.split('\n').map((line, idx) => {
-      // Bold replacement
       const parsedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
       const italicLine = parsedLine.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
@@ -225,16 +310,18 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-700 text-emerald-200 border border-emerald-500/30">
                 Master Horticulturist
               </span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/10 text-emerald-100">
+                English &amp; हिंदी
+              </span>
             </div>
             <p className="text-xs text-emerald-200/90">
-              Multi-turn plant care advice, disease diagnosis &amp; cultivation
+              Multi-turn plant care advice, disease diagnosis &amp; home remedies
             </p>
           </div>
         </div>
 
         {/* Model switcher & Chat reset */}
         <div className="flex items-center gap-2">
-          {/* Model selector dropdown */}
           <div className="flex items-center gap-1.5 bg-emerald-950/60 backdrop-blur-md px-3 py-1.5 rounded-xl border border-emerald-700/50 text-xs">
             <Cpu className="w-3.5 h-3.5 text-emerald-300" />
             <select
@@ -293,6 +380,8 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-stone-50/40">
         {messages.map((message) => {
           const isUser = message.role === 'user';
+          const isSpeaking = speakingMessageId === message.id;
+
           return (
             <div
               key={message.id}
@@ -326,23 +415,38 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
                     <div className="space-y-1">{formatBotMessage(message.content)}</div>
                   )}
 
-                  {/* Copy button on hover for bot messages */}
+                  {/* Actions for bot messages (Copy & Listen audio) */}
                   {!isUser && (
-                    <button
-                      onClick={() => copyToClipboard(message.id, message.content)}
-                      className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Copy response"
-                    >
-                      {copiedId === message.id ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1 absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => toggleTextToSpeech(message.id, message.content)}
+                        className={`p-1.5 rounded-lg text-stone-500 hover:text-emerald-700 bg-stone-100 hover:bg-stone-200 transition-colors ${
+                          isSpeaking ? 'text-emerald-700 bg-emerald-100' : ''
+                        }`}
+                        title={isSpeaking ? 'Stop listening' : 'Listen with voice'}
+                      >
+                        {isSpeaking ? (
+                          <VolumeX className="w-3.5 h-3.5 text-emerald-700 animate-pulse" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => copyToClipboard(message.id, message.content)}
+                        className="p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-500 transition-colors"
+                        title="Copy response"
+                      >
+                        {copiedId === message.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                {/* Subtext info */}
                 <div
                   className={`flex items-center gap-2 text-[10px] text-stone-400 px-1 ${
                     isUser ? 'justify-end' : 'justify-start'
@@ -361,7 +465,6 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
           );
         })}
 
-        {/* Typing indicator */}
         {isSending && (
           <div className="flex gap-3 max-w-[80%] mr-auto items-center">
             <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
@@ -382,7 +485,7 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
         <div className="px-4 py-2.5 bg-stone-50/70 border-t border-stone-100 overflow-x-auto">
           <p className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
             <HelpCircle className="w-3 h-3 text-emerald-600" />
-            Suggested Questions:
+            Suggested Questions (English &amp; हिंदी):
           </p>
           <div className="flex gap-2 pb-1">
             {starterPrompts.map((prompt, idx) => (
@@ -406,7 +509,7 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
         </div>
       )}
 
-      {/* Input Form */}
+      {/* Input Form with Voice Dictation */}
       <div className="p-4 bg-white border-t border-stone-100">
         <form
           onSubmit={(e) => {
@@ -415,13 +518,26 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
           }}
           className="flex items-end gap-2"
         >
+          <button
+            type="button"
+            onClick={toggleSpeechRecognition}
+            className={`p-3 rounded-2xl transition-all border ${
+              isListening
+                ? 'bg-rose-50 border-rose-300 text-rose-600 animate-pulse'
+                : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-emerald-700 hover:bg-emerald-50'
+            }`}
+            title={isListening ? 'Stop voice input' : 'Voice Input (Speak your question)'}
+          >
+            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          </button>
+
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={isSending}
-            placeholder="Ask FloraBot about symptoms, watering, pruning, soil mixes, pests... (Press Enter to send)"
+            placeholder="Ask FloraBot about watering, pruning, pests, soil mixes... (English or हिंदी)"
             rows={1}
             className="flex-1 px-4 py-3 rounded-2xl border border-stone-200 bg-stone-50/60 focus:bg-white text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 transition-all resize-none max-h-32 placeholder:text-stone-400"
           />
@@ -440,7 +556,7 @@ ${currentPlantContext ? `I see you're currently examining **${currentPlantContex
           </button>
         </form>
         <p className="text-[10px] text-stone-400 mt-2 text-center">
-          Powered by Gemini AI (Argon, Flash, &amp; Flash-Lite) • Provides organic &amp; scientific botanical guidance
+          Powered by Gemini AI (Argon, Flash, &amp; Flash-Lite) • Voice Dictation &amp; Audio Playback Supported
         </p>
       </div>
     </div>

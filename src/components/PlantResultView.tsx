@@ -20,8 +20,12 @@ import {
   Share2,
   Sprout,
   Heart,
-  ChevronDown,
-  ChevronUp
+  Printer,
+  X,
+  Check,
+  Ban,
+  Calendar,
+  CloudSun
 } from 'lucide-react';
 
 interface PlantResultViewProps {
@@ -42,11 +46,12 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
   isAlreadyInGarden = false,
 }) => {
   const [showAddToGardenModal, setShowAddToGardenModal] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [selectedSeason, setSelectedSeason] = useState<'summer' | 'monsoon' | 'winter'>('summer');
   const [nickname, setNickname] = useState(plant.commonName);
   const [location, setLocation] = useState('Living Room');
   const [customInterval, setCustomInterval] = useState<number>(7);
   const [addedToast, setAddedToast] = useState(false);
-  const [expandedSection, setExpandedSection] = useState<'all' | string>('all');
 
   const { careGuide, healthDiagnosis } = plant;
   const isHealthy = plant.healthStatus?.toLowerCase().includes('healthy');
@@ -87,6 +92,31 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
     }
   };
 
+  // Seasonal watering calculator helper
+  const getSeasonalWateringAdvice = () => {
+    if (selectedSeason === 'summer') {
+      return {
+        title: 'Summer (Active Vegetative Growth)',
+        cadence: careGuide.watering.frequency,
+        tips: 'Higher transpiration requires checking top 2 inches of soil every 3-5 days. Water deeply until liquid exits base drainage holes.',
+      };
+    } else if (selectedSeason === 'monsoon') {
+      return {
+        title: 'Monsoon / High Humidity Season',
+        cadence: 'Extend intervals by 30-40%',
+        tips: 'High ambient humidity slows soil evaporation. Ensure pot saucers are emptied immediately to prevent root asphyxiation.',
+      };
+    } else {
+      return {
+        title: 'Winter (Dormancy / Rest Period)',
+        cadence: careGuide.watering.seasonalVariation || 'Reduce to half frequency',
+        tips: 'Plants slow vegetative metabolism. Water only when soil is 75% dry to avoid cold wet root shock.',
+      };
+    }
+  };
+
+  const seasonalAdvice = getSeasonalWateringAdvice();
+
   return (
     <div className="w-full max-w-5xl mx-auto space-y-8 animate-fadeIn">
       {/* Top action bar */}
@@ -100,6 +130,15 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
         </button>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            onClick={() => setShowPrintModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-stone-50 text-xs sm:text-sm font-semibold transition-all shadow-xs"
+            title="Care Card Badge"
+          >
+            <Printer className="w-4 h-4 text-emerald-700" />
+            <span className="hidden sm:inline">Care Card</span>
+          </button>
+
           <button
             onClick={handleShare}
             className="p-2.5 rounded-xl bg-white border border-stone-200 text-stone-600 hover:text-stone-900 hover:bg-stone-50 transition-all shadow-xs"
@@ -145,7 +184,7 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-emerald-300" />
             <span className="text-sm font-medium">
-              <strong>{nickname}</strong> has been added to your Garden with watering reminders!
+              <strong>{nickname}</strong> has been saved to your garden with hydration reminders!
             </span>
           </div>
         </div>
@@ -159,11 +198,11 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
             <img
               src={imageUrl || plant.imageUrl || 'https://images.unsplash.com/photo-1614594975525-e45190c55d0b?auto=format&fit=crop&w=800&q=80'}
               alt={plant.commonName}
-              className="w-full h-full object-cover max-h-[460px]"
+              className="w-full h-full object-cover max-h-[480px]"
             />
             <div className="absolute top-4 left-4 flex flex-col gap-1.5">
               <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase bg-emerald-900/80 text-emerald-100 backdrop-blur-md border border-emerald-400/30">
-                {Math.round((plant.confidenceScore || 0.95) * 100)}% Match
+                {Math.round((plant.confidenceScore || 0.96) * 100)}% Match
               </span>
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-stone-900/80 text-stone-200 backdrop-blur-md border border-white/20">
                 {plant.difficulty || 'Moderate'} Care
@@ -273,7 +312,6 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
           </button>
         </div>
 
-        {/* Symptoms observed */}
         {healthDiagnosis.symptoms && healthDiagnosis.symptoms.length > 0 && (
           <div className="mb-4">
             <p className="text-xs font-bold uppercase tracking-wider opacity-75 mb-2">
@@ -292,7 +330,6 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
           </div>
         )}
 
-        {/* Root Cause */}
         {healthDiagnosis.rootCause && (
           <div className="p-4 rounded-2xl bg-white/60 border border-current/15 mb-4">
             <h4 className="text-xs font-bold uppercase tracking-wider mb-1">Underlying Root Cause:</h4>
@@ -300,7 +337,6 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
           </div>
         )}
 
-        {/* Treatment Protocol Steps */}
         {healthDiagnosis.treatmentSteps && healthDiagnosis.treatmentSteps.length > 0 && (
           <div className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wider">
@@ -320,11 +356,77 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
         )}
       </div>
 
+      {/* SEASONAL WATERING CALCULATOR */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-emerald-100 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-sky-100 text-sky-700 flex items-center justify-center">
+              <CloudSun className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-stone-900 text-base sm:text-lg">
+                Seasonal Hydration Calibrator
+              </h3>
+              <p className="text-xs text-stone-500">
+                Adjust hydration rhythms across changing seasons
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-stone-100 p-1 rounded-xl">
+            <button
+              onClick={() => setSelectedSeason('summer')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                selectedSeason === 'summer'
+                  ? 'bg-emerald-800 text-white shadow-xs'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              ☀️ Summer
+            </button>
+            <button
+              onClick={() => setSelectedSeason('monsoon')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                selectedSeason === 'monsoon'
+                  ? 'bg-emerald-800 text-white shadow-xs'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              🌧️ Monsoon / Humid
+            </button>
+            <button
+              onClick={() => setSelectedSeason('winter')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                selectedSeason === 'winter'
+                  ? 'bg-emerald-800 text-white shadow-xs'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              ❄️ Winter
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-sky-50/70 border border-sky-100 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-sky-950 uppercase tracking-wide">
+              {seasonalAdvice.title}
+            </span>
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-sky-200 text-sky-900">
+              Cadence: {seasonalAdvice.cadence}
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-sky-900 leading-relaxed">
+            {seasonalAdvice.tips}
+          </p>
+        </div>
+      </div>
+
       {/* COMPREHENSIVE CARE GUIDE CARDS */}
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-serif-plant font-bold text-emerald-950">
-            Comprehensive Botanical Care Blueprint
+            Comprehensive Botanical Blueprint
           </h2>
           <span className="text-xs text-stone-500 font-medium">
             Scientifically calibrated for {plant.commonName}
@@ -504,7 +606,57 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
           </div>
         </div>
 
-        {/* 7. Pruning & Propagation Protocol */}
+        {/* 7. Golden Dos and Don'ts Checklist */}
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-emerald-100 shadow-sm space-y-4">
+          <h3 className="text-lg font-bold font-serif-plant text-stone-900">
+            Horticultural Golden Rules: Dos &amp; Don&apos;ts
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2.5">
+              <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs uppercase tracking-wider">
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span>Recommended Practices (Do)</span>
+              </div>
+              <ul className="space-y-2 text-xs sm:text-sm text-emerald-950">
+                <li className="flex items-start gap-2">
+                  <span className="text-emerald-600 font-bold">•</span>
+                  <span>Always check moisture with finger 2 inches into soil before pouring water.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-emerald-600 font-bold">•</span>
+                  <span>Use nursery pots with multiple drainage holes to avoid standing puddle roots.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-emerald-600 font-bold">•</span>
+                  <span>Wipe leaves gently with damp cloth monthly to unblock stomata for sunlight.</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200/80 space-y-2.5">
+              <div className="flex items-center gap-2 text-rose-800 font-bold text-xs uppercase tracking-wider">
+                <Ban className="w-4 h-4 text-rose-600" />
+                <span>Harmful Mistakes to Avoid (Don&apos;t)</span>
+              </div>
+              <ul className="space-y-2 text-xs sm:text-sm text-rose-950">
+                <li className="flex items-start gap-2">
+                  <span className="text-rose-600 font-bold">•</span>
+                  <span>Don&apos;t let pots sit permanently in water-filled overflow saucers.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-rose-600 font-bold">•</span>
+                  <span>Don&apos;t expose to harsh direct scorching midday sun without acclimatization.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-rose-600 font-bold">•</span>
+                  <span>Don&apos;t fertilize a bone-dry or sick plant; always moisten soil before feeding.</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* 8. Pruning & Propagation Protocol */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-emerald-100 shadow-sm space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
@@ -535,7 +687,7 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
           </div>
         </div>
 
-        {/* 8. Companion Plants & Fun Facts */}
+        {/* 9. Companion Plants & Fun Facts */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {plant.companionPlants && plant.companionPlants.length > 0 && (
             <div className="bg-white rounded-3xl p-6 border border-emerald-100 shadow-sm space-y-3">
@@ -575,6 +727,91 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
         </div>
       </div>
 
+      {/* Printable Care Card Modal */}
+      {showPrintModal && (
+        <div className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl border border-stone-200 animate-scaleUp">
+            <div className="flex items-center justify-between pb-3 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <Sprout className="w-5 h-5 text-emerald-700" />
+                <h3 className="text-xl font-bold font-serif-plant text-stone-900">
+                  FloraWise Botanical ID Card
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowPrintModal(false)}
+                className="text-stone-400 hover:text-stone-700 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Postcard Design */}
+            <div className="p-5 rounded-2xl bg-[#fafbf9] border-2 border-emerald-200/80 space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-20 rounded-2xl overflow-hidden bg-stone-100 shrink-0 border border-stone-200">
+                  <img
+                    src={imageUrl || plant.imageUrl || 'https://images.unsplash.com/photo-1614594975525-e45190c55d0b?auto=format&fit=crop&w=800&q=80'}
+                    alt={plant.commonName}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div>
+                  <h4 className="text-lg font-bold font-serif-plant text-emerald-950">
+                    {plant.commonName}
+                  </h4>
+                  <p className="text-xs italic text-stone-500">{plant.scientificName}</p>
+                  <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                    Family: {plant.plantFamily}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-2 rounded-xl bg-white border border-stone-200">
+                  <span className="text-[10px] text-stone-400 block font-semibold">Watering</span>
+                  <span className="font-bold text-stone-800">{careGuide.watering.frequency}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white border border-stone-200">
+                  <span className="text-[10px] text-stone-400 block font-semibold">Sunlight</span>
+                  <span className="font-bold text-stone-800">{careGuide.sunlight.category}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white border border-stone-200">
+                  <span className="text-[10px] text-stone-400 block font-semibold">Ideal Soil</span>
+                  <span className="font-bold text-stone-800 truncate block">{careGuide.soil.soilType}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white border border-stone-200">
+                  <span className="text-[10px] text-stone-400 block font-semibold">Pet Safety</span>
+                  <span className="font-bold text-stone-800">
+                    {careGuide.toxicity.toxicToCats ? 'Toxic to Pets' : 'Pet-Safe'}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-stone-500 text-center italic">
+                Verified by Gemini 4 Argon Botanical Pathology Engine • FloraWise
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowPrintModal(false)}
+                className="px-4 py-2 rounded-xl border border-stone-200 text-stone-600 text-xs font-semibold hover:bg-stone-50"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-5 py-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold shadow-md shadow-emerald-800/20 flex items-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Care Card</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add to Garden Modal */}
       {showAddToGardenModal && (
         <div className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -603,7 +840,7 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
                   type="text"
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
-                  placeholder="e.g. Monty, Office Pothos, Kitchen Herb..."
+                  placeholder="e.g. Monty, Office Pothos, Balcony Tulsi..."
                   className="w-full px-4 py-2.5 rounded-xl border border-stone-200 text-sm focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                   required
                 />
